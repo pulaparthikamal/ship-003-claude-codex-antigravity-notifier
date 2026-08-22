@@ -1,0 +1,63 @@
+{
+  "name": "notifier",
+  "displayName": "Notifier — Claude, Codex & Antigravity",
+  "description": "Sound + popup notifications when Claude Code, Codex, or Antigravity finish a task, need permission, or ask a question.",
+  "version": "0.1.6",
+  "publisher": "kamalpulaparthi",
+  "license": "MIT",
+  "icon": "resources/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pulaparthikamal/ship-003-claude-codex-antigravity-notifier.git"
+  },
+  "engines": {
+    "vscode": "^1.94.0"
+  },
+  "categories": ["Other"],
+  "keywords": ["claude", "codex", "antigravity", "notifications", "agent"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "notifier.installAll", "title": "Notifier: Install Hooks (Claude, Codex, Antigravity)" },
+      { "command": "notifier.mute", "title": "Notifier: Mute" },
+      { "command": "notifier.unmute", "title": "Notifier: Unmute" },
+      { "command": "notifier.toggleAutoMute", "title": "Notifier: Toggle Auto-mute When Focused" },
+      { "command": "notifier.openHistory", "title": "Notifier: Show Status & History" },
+      { "command": "notifier.previewSound", "title": "Notifier: Preview Sound…" },
+      { "command": "notifier.chooseSound", "title": "Notifier: Choose Sound…" },
+      { "command": "notifier.openSettings", "title": "Notifier: Open Settings" },
+      { "command": "notifier.setThreshold", "title": "Notifier: Set Threshold" },
+      { "command": "notifier.setVolume", "title": "Notifier: Set Volume" },
+      { "command": "notifier.toggleSound", "title": "Notifier: Toggle Sound" },
+      { "command": "notifier.setupRemoteAudio", "title": "Notifier: Set up remote audio (play sounds locally over SSH)…" },
+      { "command": "notifier.installTerminalNotifier", "title": "Notifier: Install terminal-notifier (clickable macOS notifications)" }
+    ],
+    "configuration": {
+      "title": "Notifier",
+      "properties": {
+        "notifier.autoMuteWhenFocused": {
+          "type": "boolean",
+          "default": false,
+          "description": "Suppress sound + popups while this window is focused."
+        },
+        "notifier.minTaskDurationThreshold": {
+          "type": "number",
+          "default": 0,
+          "description": "Suppress task-complete notifications for tasks shorter than this many seconds."
+        },
+        "notifier.volume": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Notification sound volume, from 0 (silent) to 1 (full)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "node scripts/vendor.js"
+  },
+  "dependencies": {}
+}

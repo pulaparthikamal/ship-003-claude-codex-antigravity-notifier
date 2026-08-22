@@ -1,0 +1,4 @@
+scripts/**
+resources/icon-variants/**
+**/*.vsix
+.gitignore

@@ -1,0 +1,16 @@
+{
+  "name": "claude-codex-antigravity-notifier",
+  "version": "0.1.0",
+  "description": "Sound + popup notifications when Claude Code, Codex, or Antigravity need you — CLI + VS Code/Antigravity extension.",
+  "bin": {
+    "notifier": "bin/notifier.js"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pulaparthikamal/ship-003-claude-codex-antigravity-notifier.git"
+  }
+}

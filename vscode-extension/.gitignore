@@ -1,0 +1,5 @@
+bin/
+lib/
+*.vsix
+LICENSE
+resources/fallback-tone.wav
