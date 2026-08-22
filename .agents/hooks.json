@@ -1,0 +1,35 @@
+{
+  "PreToolUse": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)\" \"/Users/kamalpulaparthi/.vscode/extensions/kamalpulaparthi.notifier-0.1.7/bin/notifier.js\" dispatch antigravity",
+          "timeout": 10
+        }
+      ]
+    }
+  ],
+  "PostToolUse": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)\" \"/Users/kamalpulaparthi/.vscode/extensions/kamalpulaparthi.notifier-0.1.7/bin/notifier.js\" dispatch antigravity",
+          "timeout": 10
+        }
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"/Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)\" \"/Users/kamalpulaparthi/.vscode/extensions/kamalpulaparthi.notifier-0.1.7/bin/notifier.js\" dispatch antigravity",
+          "timeout": 10
+        }
+      ]
+    }
+  ]
+}

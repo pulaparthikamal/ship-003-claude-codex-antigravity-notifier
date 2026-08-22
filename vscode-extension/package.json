@@ -2,7 +2,7 @@
   "name": "notifier",
   "displayName": "Notifier — Claude, Codex & Antigravity",
   "description": "Sound + popup notifications when Claude Code, Codex, or Antigravity finish a task, need permission, or ask a question.",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "publisher": "kamalpulaparthi",
   "license": "MIT",
   "icon": "resources/icon.png",

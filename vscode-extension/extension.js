@@ -13,9 +13,19 @@ const cp = require('child_process');
 const vendoredCliPath = path.join(__dirname, 'bin', 'notifier.js');
 const cliPath = fs.existsSync(vendoredCliPath) ? vendoredCliPath : path.join(__dirname, '..', 'bin', 'notifier.js');
 
-function run(args) {
+function workspaceCwd() {
+  return vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0] ? vscode.workspace.workspaceFolders[0].uri.fsPath : undefined;
+}
+
+// cwd matters: the CLI's `install antigravity` writes hooks relative to its
+// own process.cwd() (a per-workspace .agents/hooks.json), unlike the Claude/
+// Codex adapters which always target a fixed path under $HOME. Without
+// explicitly pinning cwd here, execFile inherits the extension host's own
+// working directory (not the open project folder), so Antigravity hooks
+// silently land somewhere useless and no notification ever fires.
+function run(args, cwd = workspaceCwd()) {
   return new Promise((resolve) => {
-    cp.execFile(process.execPath, [cliPath, ...args], (_err, stdout) => resolve(stdout || ''));
+    cp.execFile(process.execPath, [cliPath, ...args], { cwd }, (err, stdout, stderr) => resolve(err ? `error: ${err.message}\n${stderr || ''}` : stdout || ''));
   });
 }
 
