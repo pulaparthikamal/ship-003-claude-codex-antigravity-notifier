@@ -12,6 +12,8 @@ const cp = require('child_process');
 // when running unpackaged (local dev before the vendor step has run).
 const vendoredCliPath = path.join(__dirname, 'bin', 'notifier.js');
 const cliPath = fs.existsSync(vendoredCliPath) ? vendoredCliPath : path.join(__dirname, '..', 'bin', 'notifier.js');
+const isVendored = fs.existsSync(vendoredCliPath);
+const copilotAdapter = require(isVendored ? './lib/adapters/copilot' : '../lib/adapters/copilot');
 
 function workspaceCwd() {
   return vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0] ? vscode.workspace.workspaceFolders[0].uri.fsPath : undefined;
@@ -39,11 +41,107 @@ const EVENT_KINDS = [
   { kind: 'error', label: '⚠️ Error' }
 ];
 
+function platformNotificationHelp() {
+  if (process.platform === 'darwin') {
+    return 'On macOS: System Settings → Notifications → look for "Script Editor" or "terminal-notifier" and make sure it\'s allowed. Also check the Notifier volume isn\'t 0.';
+  }
+  if (process.platform === 'win32') {
+    return 'On Windows: Settings → System → Notifications — make sure notifications are on and Focus Assist isn\'t blocking them.';
+  }
+  return 'On Linux: make sure a notification daemon is running (most desktops ship one) and libnotify-bin is installed (for notify-send).';
+}
+
+async function openNotificationSettings() {
+  if (process.platform === 'darwin') {
+    await vscode.env.openExternal(vscode.Uri.parse('x-apple.systempreferences:com.apple.preference.notifications'));
+  } else if (process.platform === 'win32') {
+    await vscode.env.openExternal(vscode.Uri.parse('ms-settings:notifications'));
+  } else {
+    vscode.window.showInformationMessage(platformNotificationHelp());
+  }
+}
+
+// Fires a real test notification+sound right at the moment of consent. This
+// matters beyond UX: on macOS and Windows, the OS only lists an app under its
+// Notifications settings once that app has actually attempted to show one —
+// asking-then-immediately-testing is what gets Notifier to appear there at
+// all, instead of a silently-blocked notification the user never gets a
+// chance to allow.
+async function testFireAndVerify(out) {
+  await run(['test-sound', 'Ping']);
+  const seen = await vscode.window.showInformationMessage('Did you just see a popup and hear a sound?', 'Yes, it worked', 'No, nothing happened');
+  if (seen === 'No, nothing happened') {
+    const pick = await vscode.window.showWarningMessage(platformNotificationHelp(), 'Open notification settings');
+    if (pick) await openNotificationSettings();
+  }
+  out.appendLine(`Test notification fired (${seen || 'no response'}).`);
+}
+
+const EXTENSION_ID = 'kamalpulaparthi.notifier';
+
+// Prefer VS Code's own built-in rating command — it's gallery-aware, so it
+// opens the correct review UI for wherever this specific install actually
+// came from (VS Code Marketplace or Open VSX), without us having to guess.
+// Only extensions installed from a gallery can be rated at all; if this
+// install came from a bare .vsix with no gallery metadata, the command
+// throws, and there is no separate rating UI to fall back to — surface that
+// plainly instead of silently doing nothing.
+async function openRatingPage() {
+  try {
+    await vscode.commands.executeCommand('workbench.extensions.action.rateExtension', EXTENSION_ID);
+  } catch {
+    vscode.window.showInformationMessage(
+      "This install has no marketplace/gallery attached (e.g. installed from a bare .vsix), so there's no rating UI to open. Install from the VS Code Marketplace or Open VSX instead to be able to rate it."
+    );
+  }
+}
+
+// One-time, unobtrusive nudge — never on first run, never more than once,
+// always dismissible for good. Exists because "people couldn't find how to
+// rate it" is at least as likely a cause as any platform-side bug.
+async function maybeNudgeForRating(context) {
+  if (context.globalState.get('notifier.ratingNudgeDone')) return;
+  const firstActivatedAt = context.globalState.get('notifier.firstActivatedAt');
+  if (!firstActivatedAt) {
+    context.globalState.update('notifier.firstActivatedAt', Date.now());
+    return;
+  }
+  if ((Date.now() - firstActivatedAt) / (1000 * 60 * 60 * 24) < 3) return;
+  context.globalState.update('notifier.ratingNudgeDone', true);
+  const pick = await vscode.window.showInformationMessage("Notifier's been running for a few days — if it's been useful, a quick rating helps others find it.", 'Rate it', 'Not now');
+  if (pick === 'Rate it') await openRatingPage();
+}
+
+async function runOnboarding(context, out) {
+  const choice = await vscode.window.showInformationMessage(
+    'Notifier can pop up a notification and play a sound when Claude Code, Codex, Antigravity, or Cursor finish a task, need permission, or ask a question. Enable it?',
+    'Enable sound + popups',
+    'Popups only (no sound)',
+    'Not now'
+  );
+  // subagent_complete is deliberately excluded — it defaults to 'off' because
+  // subagent chatter is noisy by nature; onboarding shouldn't override that.
+  const onboardedKinds = EVENT_KINDS.filter((k) => k.kind !== 'subagent_complete').map((k) => k.kind);
+  if (choice === 'Enable sound + popups') {
+    for (const kind of onboardedKinds) await run(['config-set', `events.${kind}.level`, 'sound+popup']);
+    await testFireAndVerify(out);
+  } else if (choice === 'Popups only (no sound)') {
+    for (const kind of onboardedKinds) await run(['config-set', `events.${kind}.level`, 'popup']);
+    await testFireAndVerify(out);
+  }
+  context.globalState.update('notifier.onboarded', true);
+}
+
 function activate(context) {
   const out = vscode.window.createOutputChannel('Notifier');
   out.appendLine('Notifier activated');
 
   run(['install', 'all']).then((r) => out.appendLine(r.trim() || 'hooks installed'));
+
+  if (!context.globalState.get('notifier.onboarded')) {
+    runOnboarding(context, out);
+  }
+  maybeNudgeForRating(context);
 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   status.text = '$(bell) Notifier';
@@ -68,6 +166,11 @@ function activate(context) {
       out.show();
       out.appendLine(await run(['status']));
     }),
+    vscode.commands.registerCommand('notifier.runDoctor', async () => {
+      out.show();
+      out.appendLine(await run(['doctor']));
+    }),
+    vscode.commands.registerCommand('notifier.rateExtension', () => openRatingPage()),
     vscode.commands.registerCommand('notifier.previewSound', async () => {
       const picked = await vscode.window.showQuickPick(SOUND_PRESETS, { placeHolder: 'Preview a notification sound' });
       if (!picked) return;
@@ -86,6 +189,33 @@ function activate(context) {
       out.appendLine(`${event.kind} sound -> ${sound}`);
     }),
     vscode.commands.registerCommand('notifier.openSettings', () => vscode.commands.executeCommand('workbench.action.openSettings', 'notifier')),
+    vscode.commands.registerCommand('notifier.enableNotifications', () => runOnboarding(context, out)),
+    vscode.commands.registerCommand('notifier.openNotificationSettings', () => openNotificationSettings()),
+    vscode.commands.registerCommand('notifier.setupCopilotMcp', async () => {
+      const r = await run(['install', 'copilot']);
+      out.appendLine(r.trim() || 'Copilot MCP server registered.');
+      const pick = await vscode.window.showInformationMessage(
+        'Registered a local "notifier" MCP server for GitHub Copilot Chat. IMPORTANT: Copilot Chat has no lifecycle API to hook into — this only works if the model chooses to call the tool, so it can miss events or be skipped entirely. Add a custom instruction so Copilot actually calls it?',
+        'Add recommended instruction',
+        'Skip'
+      );
+      if (pick === 'Add recommended instruction') {
+        const cwd = workspaceCwd();
+        if (!cwd) {
+          vscode.window.showWarningMessage('Open a workspace folder first.');
+          return;
+        }
+        const instrPath = path.join(cwd, '.github', 'copilot-instructions.md');
+        fs.mkdirSync(path.dirname(instrPath), { recursive: true });
+        const existing = fs.existsSync(instrPath) ? fs.readFileSync(instrPath, 'utf8') : '';
+        if (!existing.includes(copilotAdapter.RECOMMENDED_INSTRUCTION)) {
+          fs.writeFileSync(instrPath, `${existing}${existing && !existing.endsWith('\n') ? '\n' : ''}\n${copilotAdapter.RECOMMENDED_INSTRUCTION}\n`);
+        }
+        out.appendLine(`Added recommended instruction to ${instrPath}`);
+        const doc = await vscode.workspace.openTextDocument(instrPath);
+        vscode.window.showTextDocument(doc);
+      }
+    }),
     vscode.commands.registerCommand('notifier.setThreshold', async () => {
       const cfg = vscode.workspace.getConfiguration('notifier');
       const value = await vscode.window.showInputBox({

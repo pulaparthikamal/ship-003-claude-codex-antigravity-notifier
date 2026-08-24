@@ -8,7 +8,7 @@ Every adapter normalizes its agent's native events into one shape before it reac
 
 ```ts
 type CanonicalEvent = {
-  agent: 'claude' | 'codex' | 'antigravity' | string   // adapter-defined for "other"
+  agent: 'claude' | 'codex' | 'antigravity' | 'cursor' | 'copilot' | string   // adapter-defined for "other"
   kind: 'permission' | 'question' | 'idle' | 'task_complete' | 'subagent_complete' | 'error'
   sessionId: string
   cwd: string
@@ -53,17 +53,43 @@ Adapters are the only place agent-specific payload knowledge lives. The core eng
 
 ## Antigravity
 
-- **Config location**: `.agents/hooks.json` (per-workspace) or `~/.gemini/config/hooks.json` (global).
-- **Schema**: same shell-command-hook shape as the others (stdin JSON in, stdout JSON out).
-- **Events available today**: `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, `Stop`. **No dedicated "waiting on input" or "permission prompt" event is documented yet.**
+- **Config location**: `.agents/hooks.json` (per-workspace, takes precedence) or `~/.gemini/config/hooks.json` (global). Confirmed against `antigravity.google/docs/hooks/`.
+- **Schema — confirmed, and different from every other adapter here**: events are wrapped under an arbitrary **hook-name key** at the document root, not flat at the root:
+  ```json
+  { "notifier": { "PreToolUse": [{ "hooks": [{ "type": "command", "command": "...", "timeout": 30 }] }], "Stop": [...] } }
+  ```
+  An earlier version of this adapter wrote flat `{ "PreToolUse": [...], "Stop": [...] }` at the root — Antigravity doesn't recognize that as a hook registration at all, so it silently never fired. Fixed in `lib/adapters/antigravity.js` (`HOOK_NAME = 'notifier'`); `install()` also migrates away from the old flat keys on re-install. Default `timeout` is 30s when omitted (we set 10 explicitly).
+- **Events available today**: `PreToolUse`, `PostToolUse`, `PreInvocation`, `PostInvocation`, `Stop`. **No dedicated "waiting on input" or "permission prompt" event is documented yet** — permission gating is expressed only via `PreToolUse`'s own `decision` output, not a separate observable event.
 - **Mapping / gap-fill**:
   | Native event | Canonical kind | Notes |
   |---|---|---|
-  | `PreToolUse` (tool requires approval) | `permission` | adapter must inspect the tool metadata itself — Antigravity doesn't flag this explicitly the way Claude Code does |
+  | `PreToolUse` with `requires_approval` | `permission` | adapter must inspect the tool metadata itself — Antigravity doesn't flag this explicitly the way Claude Code does |
   | `Stop` | `task_complete` | |
-  | *(none)* | `idle` | **heuristic-only**: adapter starts a timer on `PostInvocation`/`PostToolUse` and synthesizes an `idle` event if nothing fires again within N seconds — mirrors Claude's `idle_prompt` but computed locally, not agent-reported |
+  | `PreToolUse` (no approval) / `PostToolUse` | *(none — returns `null`, not dispatched)* | `PostToolUse` fires after **every** tool call, not just the last one; an earlier version defaulted these to `task_complete`, which fired a full notification on every tool call and made per-event sound settings look broken |
+  | *(none)* | `idle` | **heuristic-only**: adapter starts a timer on `PostToolUse` and synthesizes an `idle` event if nothing fires again within N seconds — mirrors Claude's `idle_prompt` but computed locally, not agent-reported |
 - **Editor coupling**: Antigravity is a VS Code fork; the IDE installs unmodified VS Code extensions directly from the Marketplace. This means our VS Code extension package doubles as the Antigravity extension with no separate build — see [ARCHITECTURE.md](ARCHITECTURE.md#editor-integration-layer).
+- **Known upstream bug, Windows**: a live bug report ([Google AI developer forum, Antigravity IDE 1.107.0, Windows 11](https://discuss.ai.google.dev/t/stop-and-posttooluse-hooks-in-agents-hooks-json-never-fire-antigravity-ide-1-107-0-windows/178288)) shows `Stop`/`PostToolUse` hooks never firing on Windows even with the correct wrapper schema and multiple command-shell variants tried, while the exact same command runs fine invoked directly. No confirmed fix as of this writing — treat Antigravity-on-Windows as currently unreliable independent of anything in this repo, not a config bug on the user's end.
 - **Open question to revisit**: file an upstream feature request (mirroring `google-antigravity/antigravity-cli#346`) for a first-class notification/idle hook event; track as a follow-up, don't block v1 on it.
+
+## Cursor
+
+- **Confirmed real, current feature** (introduced Cursor v1.7, Oct 2025). Docs: `cursor.com/docs/hooks`.
+- **Config location**: `.cursor/hooks.json` (project root) or `~/.cursor/hooks.json` (global). Precedence (high→low): Enterprise (MDM) → Team (cloud, enterprise-only) → Project → User. **Cloud/background agents only read the project-level file** — a user-level-only install won't reach them.
+- **Schema** (its own shape, closer to Claude Code's `hooks` wrapper than Antigravity's, but with its own extra fields):
+  ```json
+  { "version": 1, "hooks": { "<eventName>": [{ "command": "...", "type": "command", "timeout": 30, "matcher": "...", "loop_limit": 5, "failClosed": false }] } }
+  ```
+- **Events we hook**: `stop` (→ `task_complete`), `subagentStop` (→ `subagent_complete`), `beforeShellExecution`/`beforeMCPExecution` (→ `permission`, best-effort — see below), `afterAgentResponse` (idle-heuristic trigger only, never dispatches directly).
+- **Payload fields used**: `conversation_id` (session id — Cursor has no `session_id` field), `workspace_roots` (array, not a single `cwd` — multi-root aware), `model`/`model_id`, `hook_event_name`.
+- **Exit-code semantics differ from Claude Code**: exit `0` = success; exit `2` = block/deny; any other nonzero code = hook failure and **the action proceeds anyway** (fails open by default unless `failClosed: true`). Our hook command must always exit 0 and never print stdout Cursor might parse as a decision — `dispatch` already satisfies both.
+- **`beforeShellExecution`/`beforeMCPExecution` caveat**: these are Cursor's approval **gate** points (a hook's response can itself allow/ask/deny), not a passive "the human is now being asked" signal the way Claude Code's `PermissionRequest` is. We map them to `permission` as the closest available analog, but deliberately never emit a decision ourselves — we only observe, never gate, Cursor's own approval flow.
+- **No native idle event** — same heuristic-timer approach as Antigravity, triggered off `afterAgentResponse` instead of `PostToolUse`.
+
+## GitHub Copilot Chat (VS Code extension)
+
+- **No lifecycle API exists for third-party extensions, confirmed.** [microsoft/vscode#310951](https://github.com/microsoft/vscode/issues/310951) — a feature request asking for exactly this (a public API mirroring the internal `ChatSessionStatus`/`onDidChangeStatus`) — is closed **"not planned."** The Chat Participant API (`vscode.chat`) only lets an extension register its own `@participant`; it does not expose Copilot Chat's own panel/conversation lifecycle to observers.
+- **The only real, working pattern**: give the model an **MCP tool** and rely on it choosing to call it during its own agent-mode tool loop — the same pattern used by prior art like [davidkelley/agent-notifier](https://github.com/davidkelley/agent-notifier). This repo implements it as `lib/mcp/server.js` (a minimal hand-rolled stdio JSON-RPC server, one tool: `notify`) plus `lib/adapters/copilot.js`, which writes the server registration into the workspace's `.vscode/mcp.json` and optionally proposes a custom instruction in `.github/copilot-instructions.md` telling Copilot to call it.
+- **This is instruction-compliance, not a lifecycle guarantee** — the model can simply not call the tool, and it can never fire for something that happens before the model's next turn (e.g. a permission dialog Copilot itself raises outside the tool loop). Always surface this caveat to the user; never present it as equivalent to the real hooks the other adapters use. Because of that, it's excluded from the plain `notifier install all` / activation-time auto-install and requires the dedicated, explicit **Notifier: Set up GitHub Copilot Chat (MCP, best-effort)…** command.
 
 ## "Other" agents / editors — the generic adapter contract
 

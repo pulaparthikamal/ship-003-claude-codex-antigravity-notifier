@@ -4,7 +4,7 @@ Clean-room design goal: reproduce every feature in [FEATURES.md](FEATURES.md), g
 
 ## Design principle: hooks are agent-owned, not editor-owned
 
-Claude Code, Codex, and Antigravity all fire hooks from their own config directories (`~/.claude`, `~/.codex`, `~/.gemini`/`.agents`), regardless of which editor — or no editor — is driving them. That means **the notification core cannot live inside a VS Code extension's process**; it must be a standalone piece invoked by the hook command line itself. The editor extension is a thin, optional layer on top: install/settings UI, status bar, output channel. This single fact drives the whole component split below, and is why a plain terminal or Vim user gets full functionality with zero editor extension installed.
+Claude Code, Codex, Antigravity, and Cursor all fire hooks from their own config directories (`~/.claude`, `~/.codex`, `~/.gemini`/`.agents`, `.cursor`), regardless of which editor — or no editor — is driving them. That means **the notification core cannot live inside a VS Code extension's process**; it must be a standalone piece invoked by the hook command line itself. The editor extension is a thin, optional layer on top: install/settings UI, status bar, output channel. This single fact drives the whole component split below, and is why a plain terminal or Vim user gets full functionality with zero editor extension installed. GitHub Copilot Chat is the one exception with no hook mechanism at all — see its own section in [AGENT_INTEGRATIONS.md](AGENT_INTEGRATIONS.md#github-copilot-chat-vs-code-extension).
 
 ## Components
 
@@ -14,8 +14,10 @@ flowchart TB
         CC[Claude Code] -->|hook cmd + stdin JSON| ADP
         CX[Codex CLI] -->|hook cmd + stdin JSON| ADP
         AG[Antigravity] -->|hook cmd + stdin JSON| ADP
+        CU[Cursor] -->|hook cmd + stdin JSON| ADP
         OT["Other agent (generic adapter config)"] -->|hook cmd + stdin JSON| ADP
     end
+    GHC["GitHub Copilot Chat\n(no hook API — agent calls an MCP tool instead)"] -.->|tools/call notify, best-effort| MCP["lib/mcp/server.js"] -.-> ENGINE
 
     ADP["Adapter layer\n(per-agent payload → CanonicalEvent)"] --> ENGINE
 
@@ -45,7 +47,8 @@ flowchart TB
 ```
 bin/notifier.js        # CLI entry point — the actual command every agent hook invokes
 lib/core/               # CanonicalEvent handling, config load/merge, dedup+mute+threshold state, sound/popup backends, log
-lib/adapters/           # claude.js, codex.js, antigravity.js, generic.js — each exports install()/uninstall()/normalize()
+lib/adapters/           # claude.js, codex.js, antigravity.js, cursor.js, copilot.js, generic.js — each exports install()/uninstall()/normalize()
+lib/mcp/                # server.js — the best-effort MCP `notify` tool GitHub Copilot Chat's agent mode can call (no hook API exists to install into)
 lib/relay/              # remote-audio daemon + client (SSH reverse-forward case)
 vscode-extension/       # packaged once, works in VS Code + Antigravity; UI-only, shells out to bin/notifier.js, never duplicates engine logic
 ```
@@ -74,9 +77,10 @@ interface PopupBackend { show(title: string, body: string, opts: { clickable?: b
 ```
 
 - macOS: `afplay` for bundled/system sounds; `terminal-notifier` if installed (clickable), else `osascript -e 'display notification'`.
-- Windows: PowerShell `[System.Media.SoundPlayer]` for system sounds; Windows Toast via `BurntToast`-style PowerShell snippet or native `node-notifier`-equivalent toast call.
-- Linux: `paplay`/`canberra-gtk-play` for XDG sounds; `notify-send` for popups.
-- Fallback: if a configured sound file is missing, both `SoundBackend`s fall back to a bundled WAV shipped in `packages/core/assets/`.
+- Windows: PowerShell `[System.Media.SystemSounds]` for sound; popups use a WinRT toast (`ToastNotificationManager`, borrowing PowerShell's own registered AUMID — no BurntToast install needed), falling back to a detached `MessageBox` only if the WinRT API itself is unavailable. Both popup paths are spawned **detached**, not awaited to completion: the original implementation awaited `MessageBox.Show`, which blocks until a human clicks OK — every agent kills hook commands after a short timeout (as little as 5s), so that notification was reliably killed before it could ever be seen. This was the actual root cause of "nothing shows up on Windows," confirmed by reproducing it directly.
+- Linux: `paplay`/`canberra-gtk-play` for XDG sounds (preset names map to real XDG sound-theme event IDs — an earlier version ignored the preset entirely and always played the same tone); `notify-send` for popups. Both inject `DISPLAY`/`DBUS_SESSION_BUS_ADDRESS`/`XDG_RUNTIME_DIR` defaults (keyed off the real uid) when a hook subprocess doesn't inherit them from a desktop session — a common, silent failure mode for processes spawned by a CLI agent rather than directly by an interactive login.
+- Fallback: if a configured sound file is missing, both `SoundBackend`s fall back to a bundled WAV shipped in `resources/`.
+- **Popup/sound processes are always spawned detached and unref'd**, never awaited to their own exit (except a short, bounded wait on Windows solely to detect an unsupported toast API and fall back) — a hook command that gets killed by the agent's own timeout must not be able to take the notification down with it.
 
 ## Remote / SSH case
 
@@ -84,9 +88,15 @@ Unchanged in spirit from the original: when the agent runs on a headless remote 
 
 ## Editor integration layer
 
-- **VS Code + Antigravity**: one extension package. Antigravity loads unmodified VS Code extensions, so no fork-specific build is needed — verified against Antigravity's own docs (extensions carry over from a VS Code/Cursor import, and the Marketplace VSIX installs directly). The extension's only jobs: settings UI bound to `~/.notifier/config.json`, status bar, output channel, running the relevant adapter's `install()` on activation and on agent-selection change, and writing the focus flag.
-- **Other VS Code-family forks** (Cursor, Windsurf, etc.): same VSIX works; the generic-adapter's Cursor-detection rule (from the original tool) is preserved so we don't fight another tool's own agent UI.
+- **VS Code + Antigravity**: one extension package. Antigravity loads unmodified VS Code extensions, so no fork-specific build is needed — verified against Antigravity's own docs (extensions carry over from a VS Code/Cursor import, and the Marketplace VSIX installs directly). The extension's jobs: settings UI bound to `~/.notifier/config.json`, status bar, output channel, running the relevant adapter's `install()` on activation and on agent-selection change, writing the focus flag, and a first-run consent flow (see below) before anything is enabled.
+- **Cursor**: has its own first-class adapter now (real hooks feature, not just the generic-adapter detection rule below) — see [AGENT_INTEGRATIONS.md#cursor](AGENT_INTEGRATIONS.md#cursor). The same VSIX's `install all` covers it.
+- **GitHub Copilot Chat**: no editor-side hook exists to install at all (see [AGENT_INTEGRATIONS.md#github-copilot-chat-vs-code-extension](AGENT_INTEGRATIONS.md#github-copilot-chat-vs-code-extension)) — instead an explicit, separately-gated command registers an MCP `notify` tool. Never folded into the default `install all`, since it needs informed consent about its best-effort nature and touches the workspace's own `.vscode/mcp.json` (and optionally `.github/copilot-instructions.md`).
+- **Other VS Code-family forks** (Windsurf, etc.): same VSIX works; the generic-adapter's smart-detection rule (from the original tool) is preserved so we don't fight another tool's own agent UI where no first-class adapter exists.
 - **JetBrains / Zed / Neovim / bare terminal**: no bespoke plugin in v1. `notifier-cli install` registers the relevant agent hook config directly — this is sufficient because, per the design principle above, the editor was never in the data path. A thin JetBrains/Neovim plugin is a stretch goal only if users want the status-bar/UI affordances there too (tracked in [PROJECT_PLAN.md](PROJECT_PLAN.md), not required for parity with the original feature set).
+
+### Critical gotcha: `process.execPath` inside the extension host is not a real Node binary
+
+The command baked into every hook config (`~/.claude/settings.json`, `~/.codex/hooks.json`, `.agents/hooks.json`, `.cursor/hooks.json`) has to be resolvable **later, by the agent's own unrelated process**, not just by the extension that wrote it. When the CLI's `install` command runs as a child spawned by the VS Code/Antigravity extension host, `process.execPath` inside that child is the editor's own Electron helper binary (e.g. macOS's `Code Helper (Plugin)`), not a standalone `node` — it only behaves like Node because the extension host's own environment carries `ELECTRON_RUN_AS_NODE=1`. That variable does not survive into whatever separate process later reads the hook config and re-invokes the identical command string (the agent's own hook runner) — confirmed by reproducing it directly: stripped of that env var, the Electron helper crashes instantly (`Unable to find helper app`) and the hook never dispatches. `bin/notifier.js`'s `findRealNode()` fixes this by resolving to a real, absolute `node` path via `which`/`where` at install time (so the agent's own invocation-time `PATH` doesn't matter later), falling back to `process.execPath` only if no system Node can be found — `notifier doctor` / **Notifier: Run Doctor** surfaces which one got baked in. This is why Claude Code notifications could "just work" on one machine (when the Claude Code process happens to be a descendant of the editor's process tree) yet silently fail for Antigravity's separate backend engine, or for any agent invoked from a plain terminal.
 
 ## Config schema (superset of the original, agent-generalized)
 
@@ -104,7 +114,7 @@ Unchanged in spirit from the original: when the agent runs on a headless remote 
   "suppressSubagentInteractions": true,
   "showChatTitle": true,
   "showDetail": true,
-  "agents": { "claude": true, "codex": true, "antigravity": true },
+  "agents": { "claude": true, "codex": true, "antigravity": true, "cursor": true, "copilot": true },
   "remoteAudio": { "enabled": false }
 }
 ```
