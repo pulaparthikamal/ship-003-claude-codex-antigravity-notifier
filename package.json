@@ -1,6 +1,6 @@
 {
   "name": "claude-codex-antigravity-notifier",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "description": "Sound + popup notifications when Claude Code, Codex, Antigravity, or Cursor need you — CLI + VS Code/Antigravity extension. Best-effort MCP notify tool for GitHub Copilot Chat.",
   "bin": {
     "notifier": "bin/notifier.js"

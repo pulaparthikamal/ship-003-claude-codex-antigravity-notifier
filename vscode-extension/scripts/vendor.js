@@ -23,4 +23,9 @@ copyDir(path.join(ROOT, 'lib'), path.join(DEST, 'lib'));
 // merges into vscode-extension/resources/ without touching the extension's
 // own icon.png / icon-variants already living there.
 copyDir(path.join(ROOT, 'resources'), path.join(DEST, 'resources'));
-console.log('vendored bin/, lib/, and resources/ into vscode-extension/');
+// vscode-extension/.gitignore already expects a local, git-ignored LICENSE
+// file here (same treatment as bin/ and lib/) but nothing ever copied one in
+// — every VSIX built before this fix packaged with vsce's own "LICENSE not
+// found" warning and no license file at all.
+fs.copyFileSync(path.join(ROOT, 'LICENSE'), path.join(DEST, 'LICENSE'));
+console.log('vendored bin/, lib/, resources/, and LICENSE into vscode-extension/');

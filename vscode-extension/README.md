@@ -6,8 +6,8 @@ Sound + popup notifications when Claude Code, Codex, Antigravity, or Cursor fini
 
 ## Features
 
-- Detects and hooks into **Claude Code**, **Codex CLI**, **Antigravity**, and **Cursor** — one install covers all four.
-- On first activation, asks before enabling anything, and fires a real test notification right then — this is also what gets Notifier to actually show up under your OS's notification settings (macOS/Windows only list an app there once it's tried to notify at least once).
+- Detects and hooks into **Claude Code**, **Codex CLI**, **Antigravity**, and **Cursor** — one install covers all four, hooks are installed automatically on activation, no command required.
+- Notifications (sound + popup) are turned on automatically the first time the extension activates — no dialog to click through — and a real test notification fires right then, which is also what gets Notifier to actually show up under your OS's notification settings (macOS/Windows only list an app there once it's tried to notify at least once).
 - Sound + OS popup on task-complete, permission-needed, and question events.
 - Per-event sound picker, volume control, and threshold tuning — no config file editing required.
 - Status bar entry with mute / unmute / auto-mute-when-focused.
@@ -32,8 +32,8 @@ All Notifier commands run through the **Command Palette**:
 
 | Command | What it does | Steps |
 |---|---|---|
-| `Notifier: Install Hooks (Claude, Codex, Antigravity)` | Registers hooks for Claude Code, Codex, Antigravity, and Cursor | `Ctrl+Shift+P` → type `Notifier: Install Hooks` → Enter |
-| `Notifier: Enable Notifications…` | Re-runs the first-run consent flow: choose sound+popups / popups-only / off, then fires a real test notification | `Ctrl+Shift+P` → type `Notifier: Enable Notifications` → Enter |
+| `Notifier: Install Hooks (Claude, Codex, Antigravity)` | Registers hooks for Claude Code, Codex, Antigravity, and Cursor — runs automatically on every activation, this is only needed to force a re-install | `Ctrl+Shift+P` → type `Notifier: Install Hooks` → Enter |
+| `Notifier: Enable Notifications…` | Notifications are already on by default (sound+popup) as soon as the extension activates; use this only to dial that back to popups-only or off, or to re-fire the test notification | `Ctrl+Shift+P` → type `Notifier: Enable Notifications` → Enter |
 | `Notifier: Open OS Notification Settings` | Opens your OS's notification settings pane directly (macOS/Windows) | `Ctrl+Shift+P` → type `Notifier: Open OS Notification` → Enter |
 | `Notifier: Set up GitHub Copilot Chat (MCP, best-effort)…` | Registers a `notify` MCP tool for Copilot Chat's agent mode and optionally adds a custom instruction telling it to call it — see Limitations, this is not a real hook | `Ctrl+Shift+P` → type `Notifier: Set up GitHub Copilot` → Enter |
 | `Notifier: Run Doctor` | Diagnoses hook install issues, including which Node binary hook commands will actually invoke | `Ctrl+Shift+P` → type `Notifier: Run Doctor` → Enter |

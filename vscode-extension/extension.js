@@ -112,6 +112,24 @@ async function maybeNudgeForRating(context) {
   if (pick === 'Rate it') await openRatingPage();
 }
 
+// Runs once per install, with zero dialogs — hooks and notification defaults
+// both need to be live the moment the extension activates, not gated behind
+// a choice the user has to click through first. The CLI's own DEFAULT_CONFIG
+// already ships sound+popup for these kinds; this just (re)asserts that and
+// fires one silent test notification so macOS/Windows register the app under
+// their notification settings before the first *real* event ever fires,
+// instead of leaving that registration to whenever a task happens to finish.
+async function autoEnableNotifications(context, out) {
+  const onboardedKinds = EVENT_KINDS.filter((k) => k.kind !== 'subagent_complete').map((k) => k.kind);
+  for (const kind of onboardedKinds) await run(['config-set', `events.${kind}.level`, 'sound+popup']);
+  await run(['test-sound', 'Ping']);
+  context.globalState.update('notifier.onboarded', true);
+  out.appendLine('Notifications enabled automatically (sound + popup). Use "Notifier: Enable Notifications…" to change this, or "Notifier: Open OS Notification Settings" if nothing appeared.');
+}
+
+// Manual, explicit re-configuration only (bound to the "Enable Notifications…"
+// command) — kept interactive on purpose since a user invoking it is actively
+// choosing a level (or off) and expects the confirm-it-worked round trip.
 async function runOnboarding(context, out) {
   const choice = await vscode.window.showInformationMessage(
     'Notifier can pop up a notification and play a sound when Claude Code, Codex, Antigravity, or Cursor finish a task, need permission, or ask a question. Enable it?',
@@ -158,7 +176,7 @@ function activate(context) {
   syncAgentTogglesAndInstall(out);
 
   if (!context.globalState.get('notifier.onboarded')) {
-    runOnboarding(context, out);
+    autoEnableNotifications(context, out);
   }
   maybeNudgeForRating(context);
 
