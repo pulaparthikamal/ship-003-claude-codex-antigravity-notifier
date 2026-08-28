@@ -31,6 +31,8 @@ vsce package            # produces notifier-<version>.vsix
 
 Install the `.vsix` in VS Code or Antigravity via **Extensions: Install from VSIX…** (`···` menu in the Extensions view) — same package works in both. On first activation it asks before enabling anything and fires a real test notification right then (this is also what gets Notifier to show up under your OS's own notification settings). It runs `notifier install all` on activation and adds a status bar entry, sound/volume/threshold pickers, mute/unmute commands, and a status/history view.
 
+`install all` writes a per-workspace hook file for Antigravity (`.agents/hooks.json`) and Cursor (`.cursor/hooks.json`) into every folder you open, since those two agents only read project-local config. If you don't use one of them and don't want that file showing up in every repo, turn it off in Settings under `notifier.enableAntigravity` / `notifier.enableCursor` (also `notifier.enableClaude` / `notifier.enableCodex` for the global, non-per-workspace hooks) — disabling one removes any hook file it already wrote, and it won't be recreated on future activations.
+
 **Running a command**: press **`Ctrl+Shift+P`** (Windows/Linux) or **`Cmd+Shift+P`** (macOS) to open the Command Palette, type `Notifier`, and pick from the list — every command the extension contributes shows up there. Full command-by-command steps: [vscode-extension/README.md](vscode-extension/README.md#commands).
 
 ## Repo layout

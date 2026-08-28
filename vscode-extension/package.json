@@ -2,7 +2,7 @@
   "name": "notifier",
   "displayName": "Notifier — Claude, Codex, Antigravity & Cursor",
   "description": "Sound + popup notifications when Claude Code, Codex, Antigravity, or Cursor finish a task, need permission, or ask a question. Best-effort MCP-based notify tool for GitHub Copilot Chat.",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "publisher": "kamalpulaparthi",
   "license": "MIT",
   "icon": "resources/icon.png",
@@ -57,6 +57,26 @@
           "minimum": 0,
           "maximum": 1,
           "description": "Notification sound volume, from 0 (silent) to 1 (full)."
+        },
+        "notifier.enableClaude": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Claude Code notifications. Turning this off also stops writing/updates to ~/.claude/settings.json and removes the hooks this extension added."
+        },
+        "notifier.enableCodex": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Codex notifications. Turning this off also stops writing/updates to ~/.codex/hooks.json and removes the hooks this extension added."
+        },
+        "notifier.enableAntigravity": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Antigravity notifications. Turning this off stops writing a .agents/hooks.json file into every opened workspace and removes any this extension already added."
+        },
+        "notifier.enableCursor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Cursor notifications. Turning this off stops writing a .cursor/hooks.json file into every opened workspace and removes any this extension already added."
         }
       }
     }

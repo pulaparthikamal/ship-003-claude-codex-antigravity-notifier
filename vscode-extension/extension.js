@@ -132,11 +132,30 @@ async function runOnboarding(context, out) {
   context.globalState.update('notifier.onboarded', true);
 }
 
+// Maps a per-agent VS Code setting to the CLI's agents.<name> config key, so
+// unchecking e.g. "Enable Cursor" actually stops `install all` from writing
+// .cursor/hooks.json into every workspace this extension activates in (see
+// the matching check in bin/notifier.js's `install` case) instead of only
+// silencing notifications after the fact.
+const AGENT_SETTINGS = { enableClaude: 'claude', enableCodex: 'codex', enableAntigravity: 'antigravity', enableCursor: 'cursor' };
+
+async function syncAgentToggles() {
+  const cfg = vscode.workspace.getConfiguration('notifier');
+  for (const [settingKey, agentName] of Object.entries(AGENT_SETTINGS)) {
+    await run(['config-set', `agents.${agentName}`, String(cfg.get(settingKey))]);
+  }
+}
+
+async function syncAgentTogglesAndInstall(out) {
+  await syncAgentToggles();
+  out.appendLine((await run(['install', 'all'])).trim() || 'hooks updated');
+}
+
 function activate(context) {
   const out = vscode.window.createOutputChannel('Notifier');
   out.appendLine('Notifier activated');
 
-  run(['install', 'all']).then((r) => out.appendLine(r.trim() || 'hooks installed'));
+  syncAgentTogglesAndInstall(out);
 
   if (!context.globalState.get('notifier.onboarded')) {
     runOnboarding(context, out);
@@ -288,6 +307,7 @@ function activate(context) {
       if (e.affectsConfiguration('notifier.autoMuteWhenFocused')) syncSetting('autoMuteWhenFocused');
       if (e.affectsConfiguration('notifier.minTaskDurationThreshold')) syncSetting('minTaskDurationThreshold');
       if (e.affectsConfiguration('notifier.volume')) syncSetting('volume');
+      if (Object.keys(AGENT_SETTINGS).some((k) => e.affectsConfiguration(`notifier.${k}`))) syncAgentTogglesAndInstall(out);
     })
   );
 }

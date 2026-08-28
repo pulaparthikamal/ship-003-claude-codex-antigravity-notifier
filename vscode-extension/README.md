@@ -57,6 +57,7 @@ Reachable via **`Notifier: Open Settings`**, or directly in `settings.json`:
 - `notifier.autoMuteWhenFocused` (boolean, default `false`) — suppress sound + popups while this window is focused.
 - `notifier.minTaskDurationThreshold` (number, default `0`) — suppress task-complete notifications for tasks shorter than this many seconds.
 - `notifier.volume` (number, default `1`) — notification sound volume, 0 (silent) to 1 (full).
+- `notifier.enableClaude` / `notifier.enableCodex` / `notifier.enableAntigravity` / `notifier.enableCursor` (boolean, default `true` each) — turn off notifications and hook installation for one agent. Antigravity and Cursor write a hook file into every workspace folder you open (`.agents/hooks.json`, `.cursor/hooks.json`); disabling either here removes that file from the current workspace and stops it from being recreated.
 
 ## Requirements
 

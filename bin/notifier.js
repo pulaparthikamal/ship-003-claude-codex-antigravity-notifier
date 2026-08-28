@@ -110,7 +110,25 @@ function runDoctor() {
   console.log('- config dir:', config.DIR, fs.existsSync(config.DIR) ? '(exists)' : '(will be created on first use)');
   console.log('- muted:', fs.existsSync(config.MUTE_PATH));
   console.log('- claude settings:', path.join(os.homedir(), '.claude', 'settings.json'), fs.existsSync(path.join(os.homedir(), '.claude', 'settings.json')) ? 'found' : 'missing');
-  console.log('- codex hooks:', path.join(os.homedir(), '.codex', 'hooks.json'), fs.existsSync(path.join(os.homedir(), '.codex', 'hooks.json')) ? 'found' : 'missing');
+  const codexHooksPath = path.join(os.homedir(), '.codex', 'hooks.json');
+  console.log('- codex hooks:', codexHooksPath, fs.existsSync(codexHooksPath) ? 'found' : 'missing');
+  // Versions before 2026-08-27 wrote PreToolUse/Stop as flat root-level keys,
+  // a schema Codex's real hook reader never recognized (confirmed against
+  // learn.chatgpt.com/docs/hooks — it requires a top-level "hooks" wrapper),
+  // so those installs' notifications silently never fired at all. install()
+  // now migrates this away automatically on every re-run, but a machine that
+  // hasn't had "notifier install codex" (or an extension activation) run
+  // since upgrading would still have only the dead flat keys sitting there.
+  if (fs.existsSync(codexHooksPath)) {
+    try {
+      const codexCfg = JSON.parse(fs.readFileSync(codexHooksPath, 'utf8'));
+      if (codexCfg.PreToolUse || codexCfg.Stop) {
+        console.log('  (WARNING: stale pre-migration keys found at the document root — these are never read by Codex; run "notifier install codex" to fix)');
+      }
+    } catch {
+      /* unreadable/invalid JSON — not this check's concern */
+    }
+  }
   console.log('- antigravity workspace hooks:', path.join(process.cwd(), '.agents', 'hooks.json'), fs.existsSync(path.join(process.cwd(), '.agents', 'hooks.json')) ? 'found' : 'missing');
   console.log('- cursor workspace hooks:', path.join(process.cwd(), '.cursor', 'hooks.json'), fs.existsSync(path.join(process.cwd(), '.cursor', 'hooks.json')) ? 'found' : 'missing');
   const node = findRealNode();
@@ -130,9 +148,23 @@ async function main() {
     case 'install': {
       const target = args[0];
       const names = target && target !== 'all' ? [target] : ALL_TARGET_ADAPTERS;
+      const cfg = config.loadConfig(process.cwd());
       for (const name of names) {
         if (!ADAPTERS[name]) {
           console.error(`Unknown agent "${name}". Known: ${Object.keys(ADAPTERS).join(', ')}`);
+          continue;
+        }
+        // agents.<name> === false means the user has explicitly turned this
+        // agent off (e.g. via the "Enable Cursor" VS Code setting). Honor it
+        // here too, not just in engine.dispatch's post-hoc filtering —
+        // otherwise a disabled agent still gets its hook file written into
+        // every workspace on every activation, which is exactly the
+        // unwanted-file clutter the setting exists to prevent. Also remove
+        // any hook file a previous, still-enabled install already left
+        // behind, so flipping the toggle off actually cleans up.
+        if (cfg.agents && cfg.agents[name] === false) {
+          ADAPTERS[name].uninstall(process.cwd());
+          console.log(`Skipped ${name} hooks (disabled in config)`);
           continue;
         }
         const p = ADAPTERS[name].install(bin, process.cwd());
@@ -161,6 +193,15 @@ async function main() {
         const sessionId = raw.session_id || raw.conversation_id || raw.conversationId || 'unknown';
         const cwd = evt ? evt.cwd : raw.cwd || (Array.isArray(raw.workspacePaths) && raw.workspacePaths[0]) || process.cwd();
         heuristic.module.scheduleIdleCheck(sessionId, cwd, cliJsPath);
+      }
+      // Codex's Stop/SubagentStop hooks specifically require JSON on stdout
+      // to exit 0 successfully (plain text or no output is invalid for just
+      // these two events, unlike every other event/agent) — see
+      // codex.respondsWithJson()'s comment. Never print anything for other
+      // agents: Cursor's docs are explicit that its hook command "must...
+      // never print stdout Cursor might parse as a decision."
+      if (agent === 'codex' && codex.respondsWithJson(raw.hook_event_name)) {
+        console.log(JSON.stringify({ continue: true }));
       }
       break;
     }
